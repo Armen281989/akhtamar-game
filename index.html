@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ախթամար Mobile</title>
+    <style>
+        body { background: #000b1a; color: white; margin: 0; overflow: hidden; font-family: sans-serif; touch-action: none; }
+        canvas { display: block; background: radial-gradient(circle, #001a33 0%, #000b1a 100%); }
+        #ui { position: absolute; top: 10px; width: 100%; pointer-events: none; z-index: 10; text-align: center; }
+        .bar { width: 150px; height: 8px; background: #222; margin: 5px auto; border-radius: 4px; border: 1px solid #444; overflow: hidden; }
+        #energy-bar { width: 100%; height: 100%; background: #00fbff; }
+        #hearts { font-size: 20px; }
+        
+        /* Հեռախոսի կոճակները */
+        .controls { position: absolute; bottom: 20px; left: 20px; display: grid; grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px; gap: 10px; pointer-events: auto; }
+        .btn { width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; user-select: none; -webkit-user-select: none; }
+        .btn:active { background: rgba(255,255,255,0.4); }
+        #up { grid-column: 2; }
+        #left { grid-column: 1; grid-row: 2; }
+        #down { grid-column: 2; grid-row: 2; }
+        #right { grid-column: 3; grid-row: 2; }
+        #pause-btn { position: absolute; top: 15px; right: 15px; padding: 8px 15px; background: rgba(255,255,255,0.1); border: 1px solid white; color: white; border-radius: 5px; z-index: 20; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h3 id="lvl-text" style="margin:0">Լևել: 1</h3>
+    <div class="bar"><div id="energy-bar"></div></div>
+    <div id="hearts">❤️❤️❤️</div>
+</div>
+
+<button id="pause-btn" onclick="togglePause()">P</button>
+
+<div class="controls">
+    <div class="btn" id="up" onpointerdown="keys['KeyW']=true" onpointerup="keys['KeyW']=false">↑</div>
+    <div class="btn" id="left" onpointerdown="keys['KeyA']=true" onpointerup="keys['KeyA']=false">←</div>
+    <div class="btn" id="down" onpointerdown="keys['KeyS']=true" onpointerup="keys['KeyS']=false">↓</div>
+    <div class="btn" id="right" onpointerdown="keys['KeyD']=true" onpointerup="keys['KeyD']=false">→</div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+    const cvs = document.getElementById('game');
+    const ctx = cvs.getContext('2d');
+    
+    function resize() {
+        cvs.width = window.innerWidth;
+        cvs.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    let lvl = 1, energy = 100, isPaused = false, lives = 3, invincibility = 0;
+    let player = { x: 50, y: 0, s: 35, speed: 4, angle: 0 };
+    let goal = { x: 0, y: 0, s: 45 };
+    let walls = [], poms = [], sharks = [], keys = {};
+    let audioCtx = null;
+
+    window.addEventListener('keydown', e => { 
+        keys[e.code] = true; 
+        if(!audioCtx) startAudio(); 
+        if(e.code === 'KeyP') togglePause();
+    });
+    window.addEventListener('keyup', e => keys[e.code] = false);
+    // Հեռախոսի համար սկսել ձայնը առաջին հպումից
+    window.addEventListener('pointerdown', () => { if(!audioCtx) startAudio(); });
+
+    function togglePause() { isPaused = !isPaused; }
+
+    function startAudio() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        setInterval(() => {
+            if (!isPaused) playNote([261, 329, 392][Math.floor(Math.random()*3)], 0.4, 'triangle', 0.03);
+        }, 800);
+    }
+
+    function playNote(f, d, t, v) {
+        if(!audioCtx) return;
+        let o = audioCtx.createOscillator();
+        let g = audioCtx.createGain();
+        o.type = t; o.frequency.value = f;
+        g.gain.setValueAtTime(v, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + d);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + d);
+    }
+
+    function init(l) {
+        player.x = 40; player.y = cvs.height - 80;
+        goal.x = cvs.width - 60; goal.y = 60;
+        energy = 100; walls = []; poms = []; sharks = [];
+        for(let i=0; i < 2+Math.floor(l/2); i++) walls.push({x:100+Math.random()*(cvs.width-200), y:100+Math.random()*(cvs.height-200), w:100, h:20});
+        for(let i=0; i<l; i++) sharks.push({x:cvs.width/2, y:100+Math.random()*(cvs.height-200), vx:2+Math.random()*2});
+        for(let i=0; i<3; i++) poms.push({x:50+Math.random()*(cvs.width-100), y:50+Math.random()*(cvs.height-100)});
+        document.getElementById('lvl-text').innerText = "Լևել: " + l;
+    }
+
+    function update() {
+        if (isPaused) return;
+        if (keys['KeyW'] || keys['ArrowUp']) { player.y -= player.speed; player.angle = -Math.PI/2; }
+        if (keys['KeyS'] || keys['ArrowDown']) { player.y += player.speed; player.angle = Math.PI/2; }
+        if (keys['KeyA'] || keys['ArrowLeft']) { player.x -= player.speed; player.angle = Math.PI; }
+        if (keys['KeyD'] || keys['ArrowRight']) { player.x += player.speed; player.angle = 0; }
+
+        sharks.forEach(s => {
+            s.x += s.vx; if(s.x < 20 || s.x > cvs.width-20) s.vx *= -1;
+            if(Math.hypot(player.x-s.x, player.y-s.y) < 30) takeDamage();
+        });
+
+        energy -= 0.1;
+        document.getElementById('energy-bar').style.width = energy + "%";
+        if(energy <= 0) takeDamage();
+
+        poms.forEach((p, i) => {
+            if(Math.hypot(player.x-p.x, player.y-p.y) < 30) { energy=Math.min(100, energy+30); poms.splice(i,1); playNote(600, 0.1, 'sine', 0.1); }
+        });
+
+        if(Math.hypot(player.x-goal.x, player.y-goal.y) < 40) { lvl++; init(lvl); }
+        if(invincibility > 0) invincibility--;
+    }
+
+    function takeDamage() {
+        if(invincibility > 0) return;
+        lives--; invincibility = 80;
+        document.getElementById('hearts').innerText = "❤️".repeat(Math.max(0,lives));
+        if(lives <= 0) { alert("Game Over"); lives=3; lvl=1; init(1); document.getElementById('hearts').innerText = "❤️❤️❤️"; }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        ctx.fillStyle = "#1a2a44";
+        walls.forEach(w => ctx.fillRect(w.x, w.y, w.w, w.h));
+        
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        sharks.forEach(s => { ctx.font = "30px Arial"; ctx.fillText(s.vx > 0 ? "🦈" : "🦈", s.x, s.y); });
+        poms.forEach(p => { ctx.font = "20px Arial"; ctx.fillText("🍎", p.x, p.y); });
+        ctx.font = "40px Arial"; ctx.fillText("🏝️", goal.x, goal.y);
+
+        if(invincibility % 10 < 5) {
+            ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(player.angle);
+            ctx.font = "30px Arial"; ctx.fillText("🐢", 0, 0); ctx.restore();
+        }
+
+        update();
+        requestAnimationFrame(draw);
+    }
+    init(1); draw();
+</script>
+</body>
+</html>
